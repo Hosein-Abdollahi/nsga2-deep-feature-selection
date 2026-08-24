@@ -1,0 +1,8 @@
+# dataset and extracted features regenerate from 01_extract_features.py
+data/
+features.npz
+
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
