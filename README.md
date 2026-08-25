@@ -120,6 +120,13 @@ Model Selection and Subsequent Selection Bias in Performance Evaluation*, JMLR
 least as much as unbiasedness, because a noisy criterion gives the search
 something to over-fit. My fitness was accuracy on 150 images. That is noisy.
 
+- Loughrey & Cunningham (2005), *Overfitting in Wrapper-Based Feature Subset
+  Selection: The Harder You Try the Worse it Gets*, SGAI 2004, Springer.
+  https://link.springer.com/chapter/10.1007/1-84628-102-4_3
+- Cawley & Talbot (2010), *On Over-fitting in Model Selection and Subsequent
+  Selection Bias in Performance Evaluation*, JMLR 11:2079–2107.
+  https://www.jmlr.org/papers/v11/cawley10a.html
+  
 ### Running longer makes it worse
 
 Tripling the generations, changing nothing else:
