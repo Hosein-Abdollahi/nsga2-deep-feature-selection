@@ -84,20 +84,270 @@ skill.
 So the validation column is optimistic by construction. Test is the number to
 read, and the conclusion above is based on it.
 
+## Going further: does the search actually find anything?
+
+The result above bothered me. Validation said 0.8733, test said 0.7267, and the
+baseline test was also 0.7267. So the front looked good and the honest number
+had not moved at all.
+
+That raises a simple question. If NSGA-II picks 168 features and gets 0.7267,
+what do 168 *random* features get?
+
+About the same. Across four seeds the advantage over random subsets of the
+same size was under one standard deviation of the random draws. The subsets
+chosen by different seeds also overlapped at roughly chance level, and the
+union of three different subsets scored higher than any of them individually.
+
+Three separate signals pointing the same way: at this subset size, almost any
+selection works, so no method can look good against random.
+
+### What the literature says
+
+The relevant paper is Loughrey and Cunningham, *Overfitting in Wrapper-Based
+Feature Subset Selection: The Harder You Try the Worse it Gets* (2005). Their
+claim is that in wrapper feature selection, the more subsets the search visits,
+the more likely it finds one that scores well internally and generalises badly.
+Their Figure 1 shows internal accuracy climbing while test accuracy peaks early
+and then declines.
+
+They propose GAWES: use an inner cross-validation to find the generation where
+held-out accuracy peaks, then stop the real run there. Their GA fitness is a
+10-fold cross-validated accuracy, not a single split.
+
+The mechanism behind it is described in Cawley and Talbot, *On Over-fitting in
+Model Selection and Subsequent Selection Bias in Performance Evaluation*, JMLR
+2010. Their point is that low variance in a selection criterion matters at
+least as much as unbiasedness, because a noisy criterion gives the search
+something to over-fit. My fitness was accuracy on 150 images. That is noisy.
+
+### Running longer makes it worse
+
+Tripling the generations, changing nothing else:
+
+| generations | features | validation | test | gap |
+|---|---:|---:|---:|---:|
+| 50 | 168 | 0.8733 | 0.7267 | +0.147 |
+| 150 | 142 | 0.9000 | 0.6933 | +0.207 |
+
+More search, better fitness, worse model.
+
+Tracking both accuracies every generation reproduces their Figure 1 on deep
+features. Validation climbs from 0.8067 to 0.9000 and never turns over. Test
+peaks at 0.7600 at generation 8, then falls to 0.6933 by generation 150.
+
+The best model existed at generation 8 and the search spent the next 142
+generations destroying it.
+
+![Overfitting curve](results/overfitting_curve.png)
+
+### Fixing it
+
+Two changes, tested separately and then together.
+
+**Cross-validated fitness.** Merge train and validation into one 850-image
+set and score each candidate by 3-fold CV instead of a single 150-image split.
+Averaging folds cuts the noise the search can exploit.
+
+**Early stopping.** An inner cross-validation, run only on training and
+validation data, finds the generation where genuinely held-out accuracy peaks.
+That generation is then applied to a fresh run. The test set is read once, at
+the end.
+
+The inner CV needs three levels of data, not two: the classifier is fit on one
+part, the fitness measured on a second, and the stopping point tracked on a
+third that the search never sees. Collapsing the second and third makes the
+tracked curve identical to the fitness, so it can never turn over.
+
+Mean gap between the fitness and test accuracy across the front:
+
+| setup | mean gap |
+|---|---:|
+| single 150-image validation split | +0.147 |
+| CV fitness only | +0.055 |
+| early stopping only | +0.060 |
+| both | +0.009 |
+
+Each fix removes roughly half, and they stack. The last row is averaged over
+three seeds, range −0.005 to +0.025.
+
+### The trade-off, honestly
+
+With both fixes, every solution on the front is reported with its test
+accuracy, not just its fitness. Run over three seeds:
+
+| seed | stop gen | smallest subset matching the baseline | its test | gain | mean gap |
+|---:|---:|---:|---:|---:|---:|
+| 42 | 32 | 124 | 0.7533 | +0.040 | −0.005 |
+| 43 | 38 | 119 | 0.7667 | +0.053 | +0.006 |
+| 44 | 38 | 116 | 0.7267 | +0.013 | +0.025 |
+
+Baseline with all 512 features: 0.7133.
+
+The subset size is stable: **116 to 124 features, under a quarter of the
+original**, in every run. The accuracy on top of that is less stable — the
+gain over the baseline ranges from +0.013 to +0.053, averaging +0.035.
+
+The front for seed 42:
+
+| features | CV accuracy | test | vs 512 baseline |
+|---:|---:|---:|---:|
+| 124 | 0.6788 | 0.7533 | +0.0400 |
+| 127 | 0.6906 | 0.7533 | +0.0400 |
+| 132 | 0.7235 | 0.7133 | 0.0000 |
+| 141 | 0.7283 | 0.7333 | +0.0200 |
+| 147 | 0.7365 | 0.7067 | −0.0067 |
+| 149 | 0.7400 | 0.7467 | +0.0333 |
+| 157 | 0.7435 | 0.7467 | +0.0333 |
+| 163 | 0.7553 | 0.7467 | +0.0333 |
+| 166 | 0.7565 | 0.7467 | +0.0333 |
+| 192 | 0.7612 | 0.7600 | +0.0467 |
+
+![Combined](results/combined.png)
+
+Two things not to read into this. The test set has 150 images, so its standard
+error is around 3.7 points; the swings between neighbouring solutions are
+noise, and the ranking within the front should not be trusted even though the
+level should. And the smoothed inner-CV curve is flat across generations 30 to
+38, so the stopping point is "somewhere in the middle thirties", not exactly
+32.
+
+So the dimensionality reduction is the robust part. The accuracy improvement on
+top of it is real on average but small enough that a single seed could show
+almost none of it.
+
+### Where the search earns its keep
+
+One more experiment. The fronts above never went below 90 features, because
+random initialisation starts every individual at around 256 features and 50
+generations is not enough to walk further left. So the sparse region was never
+searched.
+
+Changing the initialisation to 0.05 or 0.15 per bit starts the population at
+roughly 25 or 77 features instead. Comparing each front solution against 20
+random subsets of the same size:
+
+| subset size | advantage over random (z) |
+|---|---:|
+| 5 to 20 | ~3.5 |
+| 12 to 32 | ~3.4 |
+| 48 to 101 | ~1.3 |
+| 146 to 168 | ~0.7 |
+
+The advantage decays with subset size and is gone by about 100 features. At 10
+features NSGA-II reaches 0.5400 against a random mean of 0.3043.
+
+So the original null result was not the method failing. These features are
+redundant enough that once you have enough of them, which ones you picked
+stops mattering. Selection only earns its keep when the budget is tight — and
+no subset small enough for that reaches the full-feature baseline.
+
+### Does the search agree with itself?
+
+Everything above is a null result or a caveat, so here is the one positive
+finding.
+
+Pooling every solution from every run in this repository — 117 Pareto-front
+solutions across 11 runs with different seeds, initialisations, fitness
+functions and generation budgets — gives a count of how often each of the 512
+features was selected.
+
+If the features were interchangeable, those counts would cluster around the
+mean subset size divided by 512, which is 0.239, scattering with a standard
+deviation of 0.039. They do not. The observed frequencies range from 0.9% to
+78.6% with a standard deviation of 0.133, **3.4 times wider than chance**.
+
+Feature 234 appears in 78.6% of all solutions. Feature 349 appears in 0.9%.
+
+![Feature frequency](results/feature_frequency.png)
+
+And the frequently chosen features are the useful ones:
+
+| subset size | most-selected | least-selected | random mean |
+|---:|---:|---:|---:|
+| 50 | 0.6467 | 0.4667 | 0.5697 |
+| 100 | 0.6667 | 0.5400 | 0.6510 |
+| 150 | 0.7267 | 0.6600 | 0.6990 |
+
+An 18-point gap at 50 features between the features the search keeps choosing
+and the ones it keeps rejecting.
+
+This corrects something stated earlier. Pairwise overlap between two
+150-feature subsets sits near chance, which looked like evidence that no stable
+informative set exists. That was the wrong instrument: two subsets can both
+favour the same 30 good features and still overlap at random across the other
+120. Pooling 117 solutions is sensitive enough to see the structure the
+pairwise test missed.
+
+Note that the most-selected features beat random only weakly (z between +0.4
+and +2.0) while beating the least-selected clearly. The informative features
+are numerous and diffuse rather than concentrated in a handful, so a random
+draw already captures most of the benefit.
+
+### What is mine and what is not
+
+The method in the last section is not new. Cross-validated fitness plus early
+stopping via inner cross-validation is GAWES, published in 2005.
+
+What is not in that paper: the decomposition showing each fix removes about
+half the gap and that the two stack; the random-subset control, which asks
+whether the search finds anything rather than whether early stopping helps;
+the dependence of that advantage on subset size; the pooled frequency analysis
+across runs; and the setting, since their datasets had 8 to 60 features and
+mine has 512 deep CNN features.
+
+### Where this ends up
+
+The dimensionality reduction works and is robust. Across three seeds, 116 to
+124 features — under a quarter of the original 512 — matched or beat the
+full-feature baseline every time, and the gap between the fitness and test
+accuracy went from +0.147 to +0.009.
+
+The search does find real structure. Across 117 solutions the selection
+frequency varies 3.4 times more than chance, and the features it keeps
+choosing beat the ones it keeps rejecting by up to 18 points.
+
+But the advantage over simply picking features at random is small. It is
+around z = 1.9 at 150 features, clear only below about 50, and the accuracy
+gain over the baseline ranges from +0.013 to +0.053 depending on the seed.
+Five separate checks — the random control, the seed variance, the partial
+correlation, the size sweep and the frequency analysis — all say the same
+thing: real, but weak.
+
+The conclusion is narrower than "evolutionary feature selection works". On
+this data it works, but only under three conditions at once: a low-variance
+fitness, a stopping rule, and a feature budget tight enough that the choice of
+features still matters. Remove any one and the result becomes hard to tell
+apart from picking features at random.
+
 ## Running it
 
 ```
 pip install -r requirements.txt
+```
 
-python extract_features.py
-python baseline.py
-python nsga2.py
-python report.py
+The main result, which is what the project asked for:
+
+```
+python 01_extract_features.py
+python 02_baseline.py
+python 03_nsga2.py
+python 04_report.py
+```
+
+The follow-up experiments, each one standalone once `features.npz` exists:
+
+```
+python 05_sparse_init.py          # where selection beats random
+python 06_early_stopping.py       # per-generation curve
+python 07_early_stopping_fixed.py # early stopping, three data levels
+python 08_random_control.py       # random subsets of the same size
+python 09_combined.py             # CV fitness plus early stopping
+python 10_stability.py            # feature frequency across all runs
 ```
 
 The first script downloads CIFAR-10 and the ResNet-18 weights, which takes a
 few minutes the first time. Feature extraction is a few minutes more on CPU.
-The search takes around 20 minutes.
+The search takes around 20 minutes; the cross-validated runs take longer.
 
 Seeds are fixed, so the numbers above come out the same every run.
 
