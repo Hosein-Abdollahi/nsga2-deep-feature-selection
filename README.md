@@ -290,20 +290,20 @@ pip install -r requirements.txt
 The main result, which is what the project asked for:
 
 ```
-python 01_extract_features.py
-python 02_baseline.py
-python 03_nsga2.py
-python 04_report.py
+python extract_features.py
+python baseline.py
+python nsga2.py
+python report.py
 ```
 
 The follow-up experiments, each standalone once `features.npz` exists:
 
 ```
-python 05_sparse_init.py
-python 06_early_stopping.py
-python 07_early_stopping_fixed.py
-python 08_random_control.py
-python 09_combined.py
+python sparse_init.py
+python early_stopping.py
+python early_stopping_fixed.py
+python random_control.py
+python combined.py
 ```
 
 The first script downloads CIFAR-10 and the ResNet-18 weights, which takes a
