@@ -299,11 +299,11 @@ python report.py
 The follow-up experiments, each standalone once `features.npz` exists:
 
 ```
-python sparse_init.py
-python early_stopping.py
-python early_stopping_fixed.py
-python random_control.py
-python combined.py
+python follow-up/sparse_init.py
+python follow-up/early_stopping.py
+python follow-up/early_stopping_fixed.py
+python follow-up/random_control.py
+python follow-up/combined.py
 ```
 
 The first script downloads CIFAR-10 and the ResNet-18 weights, which takes a
