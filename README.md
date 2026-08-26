@@ -36,7 +36,7 @@ is a Pareto front: a set of solutions where each one wins on something.
 | Classifier | k-NN, k = 5, the same for every candidate |
 | Search | NSGA-II from DEAP, population 100, 50 generations |
 | Encoding | one bit per feature, 1 means keep it |
-| Operators | uniform crossover 0.9, bit flip mutation 1/512 |
+| Operators | uniform crossover, p = 0.9 per pair and 0.5 per bit; mutation, p = 0.1 per offspring and 1/512 per bit |
 
 Images are resized to 224x224 and normalised with ImageNet statistics, since
 that is what ResNet-18 expects. The scaler is fit on the training split only.
@@ -76,8 +76,8 @@ that failed to show up. It is something the search created.
 
 NSGA-II scores a few thousand subsets against the same 150 validation images
 and keeps whichever scores highest. With only 150 images, an accuracy estimate
-wobbles by around 3 percent just from which images happened to land in that
-split. Try thousands of subsets against a wobbly measurement and one of them
+wobbles by around 3 percentage points just from which images happened to land
+in that split. Try thousands of subsets against a wobbly measurement and one of them
 will look great partly by luck, and the search has no way to tell luck from
 skill.
 
@@ -106,13 +106,12 @@ selection works, so no method can look good against random.
 The relevant paper is Loughrey and Cunningham, *Overfitting in Wrapper-Based
 Feature Subset Selection: The Harder You Try the Worse it Gets* (2005). Their
 claim is that in wrapper feature selection, the more subsets the search visits,
-the more likely it finds one that scores well internally and generalises badly.
-Their Figure 1 shows internal accuracy climbing while test accuracy peaks early
-and then declines.
+the more likely it finds one that scores well internally and generalises badly:
+internal accuracy keeps climbing while held-out accuracy peaks early and then
+declines.
 
 They propose GAWES: use an inner cross-validation to find the generation where
-held-out accuracy peaks, then stop the real run there. Their GA fitness is a
-10-fold cross-validated accuracy, not a single split.
+held-out accuracy peaks, then stop the real run there.
 
 The mechanism behind it is described in Cawley and Talbot, *On Over-fitting in
 Model Selection and Subsequent Selection Bias in Performance Evaluation*, JMLR
@@ -138,7 +137,7 @@ Tripling the generations, changing nothing else:
 
 More search, better fitness, worse model.
 
-Tracking both accuracies every generation reproduces their Figure 1 on deep
+Tracking both accuracies every generation reproduces that pattern on deep
 features. Validation climbs from 0.8067 to 0.9000 and never turns over. Test
 peaks at 0.7600 at generation 8, then falls to 0.6933 by generation 150.
 
@@ -154,6 +153,11 @@ Two changes, tested separately and then together.
 **Cross-validated fitness.** Merge train and validation into one 850-image
 set and score each candidate by 3-fold CV instead of a single 150-image split.
 Averaging folds cuts the noise the search can exploit.
+
+Note that this changes the reference point. The full-feature baseline quoted
+earlier, 0.7267, was fit on 700 images. Refit on the merged 850-image set it
+gives 0.7133, and that is the baseline every number in the rest of this section
+is measured against.
 
 **Early stopping.** An inner cross-validation, run only on training and
 validation data, finds the generation where genuinely held-out accuracy peaks.
@@ -177,10 +181,16 @@ Mean gap between the fitness and test accuracy across the front:
 Each fix removes roughly half, and they stack. The last row is averaged over
 three seeds, range −0.005 to +0.025.
 
+<!-- UNRESOLVED: the seed-42 front printed below gives a signed mean gap of
+     -0.0093, which is outside the range stated above. Check whether
+     follow-up/combined.py reports the signed or the absolute mean, and over
+     which front points, then correct the +0.009 row and the range. -->
+
 ### The trade-off, honestly
 
 With both fixes, every solution on the front is reported with its test
-accuracy, not just its fitness. Run over three seeds:
+accuracy, not just its fitness. Run over three seeds, with gain measured
+against the 850-image baseline of 0.7133:
 
 | seed | stop gen | smallest subset matching the baseline | its test | gain |
 |---:|---:|---:|---:|---:|
@@ -207,13 +217,13 @@ The front for seed 42:
 | 166 | 0.7565 | 0.7467 | +0.0333 |
 | 192 | 0.7612 | 0.7600 | +0.0467 |
 
-Baseline with all 512 features: 0.7133.
+Baseline with all 512 features, fit on the merged 850-image set: 0.7133.
 
 ![Combined](results/combined.png)
 
 Two things not to read into this. The test set has 150 images, so its standard
-error is around 3.7 points; the four-point swings between neighbouring
-solutions are noise, and the ranking within the front should not be trusted
+error is around 3.7 points at this baseline; the four-point swings between
+neighbouring solutions are noise, and the ranking within the front should not be trusted
 even though the level should. And the smoothed inner-CV curve is flat across
 generations 30 to 38, so the stopping point is "somewhere in the middle
 thirties", not exactly 32.
@@ -273,7 +283,8 @@ full-feature baseline every time, and the gap between the fitness and test
 accuracy went from +0.147 to +0.009.
 
 The accuracy gain on top of that is real but small: +0.013 to +0.053 depending
-on the seed, against a test set whose own standard error is around 3.7 points.
+on the seed, against a test set whose own standard error is around 3.7 points
+at this baseline.
 
 What I would want to check next is whether the stopping generation is stable
 under a different feature extractor, and whether a simple univariate filter
